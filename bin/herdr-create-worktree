@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# herdr-create-worktree — create a git worktree backed by a herdr workspace
+# for a branch, and focus it. One command instead of the usual git dance.
+#
+# The new branch is based on whatever branch is currently checked out in
+# the repo's primary checkout (herdr's own default for an omitted --base) —
+# not necessarily trunk. Check out the branch you want as a base before
+# running this script.
+#
+# This is the exception to this repo's "session-required" pattern: it
+# bootstraps a herdr session/workspace rather than requiring one to already
+# exist, so it must work when invoked from outside any herdr session.
+#
+# Must be run from the repo's primary checkout (not from inside another
+# linked worktree) — herdr's worktree actions start from the repo parent
+# workspace.
+set -euo pipefail
+
+# --- config ---
+# No AGENT_KIND here: this script only creates the worktree/workspace, it
+# never starts an agent (see README "Out of scope").
+
+die() {
+  echo "herdr-create-worktree: $*" >&2
+  exit 1
+}
+
+command -v herdr >/dev/null 2>&1 || die "herdr CLI not found on PATH"
+command -v git >/dev/null 2>&1 || die "git not found on PATH"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Usage: herdr-create-worktree <branch>" >&2
+  exit 0
+fi
+[[ $# -eq 1 ]] || die "usage: herdr-create-worktree <branch>"
+branch="$1"
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" \
+  || die "not inside a git repository"
+
+# No --base: herdr defaults to whatever branch is currently checked out in
+# the primary checkout, which is what we want here.
+result="$(herdr worktree create \
+  --cwd "$repo_root" \
+  --branch "$branch" \
+  --focus 2>&1)" \
+  || die "herdr worktree create failed: $result"
+
+echo "$result"
