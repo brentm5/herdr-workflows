@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# herdr-delete-worktree — clean up the current herdr worktree, without
+# silently discarding unmerged work.
+#
+# Session-required: must be run from inside the herdr session for the
+# worktree being deleted. We target $HERDR_WORKSPACE_ID directly rather than
+# trying to figure out which workspace to clean from outside a session.
+#
+# Before deleting, checks whether the worktree's branch is merged into trunk
+# via a local-git-only ancestry check (git merge-base --is-ancestor). That
+# check cannot prove a squash- or rebase-merged branch is merged, so it
+# defaults to "not merged" whenever ancestry doesn't confirm it — this is
+# intentional (see CONTEXT.md, "Clean"), not a bug. On "not merged", prompts
+# interactively to continue or abort instead of proceeding automatically.
+# There is no --force flag; the interactive prompt is the only override.
+set -euo pipefail
+
+# --- config ---
+TRUNK_DEFAULT="main"
+
+die() {
+  echo "herdr-delete-worktree: $*" >&2
+  exit 1
+}
+
+command -v herdr >/dev/null 2>&1 || die "herdr CLI not found on PATH"
+command -v git >/dev/null 2>&1 || die "git not found on PATH"
+command -v gum >/dev/null 2>&1 || die "gum not found on PATH"
+
+usage() {
+  echo "Usage: herdr-delete-worktree [--trunk <branch>]" >&2
+}
+
+trunk="$TRUNK_DEFAULT"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --trunk)
+      [[ $# -ge 2 ]] || die "--trunk requires an argument"
+      trunk="$2"
+      shift 2
+      ;;
+    *)
+      usage
+      die "unknown argument: $1"
+      ;;
+  esac
+done
+
+# Session-required: this workflow only makes sense inside the herdr session
+# for the worktree being deleted (see CONTEXT.md, "Session-required
+# workflow"). Don't try to guess a target workspace from outside a session.
+[[ -n "${HERDR_WORKSPACE_ID:-}" ]] \
+  || die "must be run from inside a herdr session (\$HERDR_WORKSPACE_ID is not set)"
+workspace_id="$HERDR_WORKSPACE_ID"
+
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" \
+  || die "not inside a git repository"
+[[ "$branch" != "HEAD" ]] || die "worktree is in a detached HEAD state, refusing to clean"
+
+# Conservative, local-git-only merge check (see CONTEXT.md, "Clean"): plain
+# ancestry can't prove a squash- or rebase-merged branch is merged, and that
+# false negative is accepted, not fixed here.
+merged=false
+if git merge-base --is-ancestor "$branch" "$trunk" 2>/dev/null; then
+  merged=true
+fi
+
+if [[ "$merged" != true ]]; then
+  echo "herdr-delete-worktree: branch '$branch' does not appear to be merged into '$trunk'." >&2
+  echo "(This check can't detect squash- or rebase-merges; it may be a false negative.)" >&2
+  gum confirm "Delete worktree for '$branch' anyway?" || die "aborted"
+fi
+
+result="$(herdr worktree remove --workspace "$workspace_id" 2>&1)" \
+  || die "herdr worktree remove failed: $result"
+
+echo "$result"

@@ -15,7 +15,7 @@ re-deriving the `herdr` incantation every time.
 ## Conventions (tentative)
 
 - One script per workflow, named `herdr-<verb>-<type>` (e.g. `herdr-run-agent`,
-  `herdr-create-worktree`, `herdr-clean-worktree`).
+  `herdr-create-worktree`, `herdr-delete-worktree`).
 - Plain bash, `set -euo pipefail`.
 - Dependencies: `bash`, `herdr`, `jq`, and potentially [`gum`](https://github.com/charmbracelet/gum)
   for interactive prompts/menus where a script needs to ask the user something.
@@ -36,7 +36,7 @@ re-deriving the `herdr` incantation every time.
 - **`herdr-create-worktree`** — create a new git worktree for a branch and open
   it in herdr (`herdr worktree create` + focus), so starting a new line of
   work is one command instead of the usual git dance.
-- **`herdr-clean-worktree`** — clean up a worktree once it's done. Before
+- **`herdr-delete-worktree`** — clean up a worktree once it's done. Before
   removing anything, check whether the worktree's branch is merged into the
   trunk branch; if it isn't, stop and warn instead of deleting (see "Worktree
   cleanup safety" below).
@@ -66,16 +66,18 @@ search-and-replace.
 
 ## Worktree cleanup safety
 
-`herdr-clean-worktree` must not silently delete unmerged work. Before calling
+`herdr-delete-worktree` must not silently delete unmerged work. Before calling
 `herdr worktree remove`:
 
 1. Determine the worktree's branch and the trunk branch (default `main`,
-   overridable).
-2. Check whether the branch is merged into trunk (e.g. `git branch --merged`
-   or equivalent ancestry check).
-3. If not merged, abort with a clear message instead of removing it. Maybe
-   allow an explicit `--force` to override, but that should never be the
-   default.
+   overridable via `--trunk`).
+2. Check whether the branch is merged into trunk via
+   `git merge-base --is-ancestor <branch> <trunk>`. This is intentionally
+   conservative: it can't prove a squash- or rebase-merged branch is merged,
+   so it defaults to "not merged" whenever ancestry doesn't confirm it.
+3. If not merged (including that ambiguous case), prompt interactively to
+   continue or abort instead of proceeding automatically. There is no
+   `--force` flag; the interactive prompt is the only override.
 
 ## Open questions
 
