@@ -5,7 +5,7 @@ Glossary for herdr-workflows. Terms here are canonical — use them consistently
 ## Terms
 
 **Workflow**
-: A common pattern of interacting with herdr, codified as a script so it's easier to invoke than re-deriving the raw `herdr` command sequence by hand. One workflow = one script in `bin/` (see the README's naming convention, `herdr-<verb>-<type>`). A workflow's identity is just its filename — no separate registry or listing. Workflows can call each other directly by name (e.g. `herdr-run-agent` invoked from inside `herdr-clean-worktree`), relying on `bin/` being on `PATH`.
+: A common pattern of interacting with herdr, codified as a script so it's easier to invoke than re-deriving the raw `herdr` command sequence by hand. One workflow = one script in `bin/` (see the README's naming convention, `herdr-<verb>-<type>`). A workflow's identity is just its filename — no separate registry or listing. Workflows can call each other directly by name (e.g. `herdr-run-agent` invoked from inside `herdr-delete-worktree`), relying on `bin/` being on `PATH`.
 
 **Workspace**
 : herdr's top-level container. A workspace holds one or more tabs. (herdr's own term — see `herdr --skill`.)
