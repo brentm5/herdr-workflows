@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# herdr-create-worktree — create a git worktree backed by a herdr workspace
+# for a branch, based on trunk, and focus it. One command instead of the
+# usual git dance.
+#
+# This is the exception to this repo's "session-required" pattern: it
+# bootstraps a herdr session/workspace rather than requiring one to already
+# exist, so it must work when invoked from outside any herdr session.
+#
+# Must be run from the repo's primary checkout (not from inside another
+# linked worktree) — herdr's worktree actions start from the repo parent
+# workspace.
+set -euo pipefail
+
+# --- config ---
+# No AGENT_KIND here: this script only creates the worktree/workspace, it
+# never starts an agent (see README "Out of scope").
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: herdr-create-worktree --branch <name> [--base <ref>]
+
+Create a git worktree + herdr workspace for <name>, based on trunk (the
+repo's default branch) unless --base overrides it, and focus it.
+
+Options:
+  --branch <name>   Name of the new branch (required).
+  --base <ref>      Base ref to branch from (default: repo's default branch).
+  -h, --help        Show this help.
+EOF
+}
+
+die() {
+  echo "herdr-create-worktree: $*" >&2
+  exit 1
+}
+
+branch=""
+base=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --branch)
+      [[ $# -ge 2 ]] || die "--branch requires a value"
+      branch="$2"
+      shift 2
+      ;;
+    --branch=*)
+      branch="${1#*=}"
+      shift
+      ;;
+    --base)
+      [[ $# -ge 2 ]] || die "--base requires a value"
+      base="$2"
+      shift 2
+      ;;
+    --base=*)
+      base="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $1 (see --help)"
+      ;;
+  esac
+done
+
+[[ -n "$branch" ]] || die "--branch <name> is required (see --help)"
+
+command -v herdr >/dev/null 2>&1 || die "herdr CLI not found on PATH"
+command -v git >/dev/null 2>&1 || die "git not found on PATH"
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" \
+  || die "not inside a git repository"
+
+# Determine trunk (repo default branch) when --base wasn't given, purely
+# from local git state — no network calls.
+if [[ -z "$base" ]]; then
+  if symref="$(git -C "$repo_root" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)"; then
+    base="${symref#origin/}"
+  elif git -C "$repo_root" show-ref --verify --quiet refs/heads/main; then
+    base="main"
+  elif git -C "$repo_root" show-ref --verify --quiet refs/heads/master; then
+    base="master"
+  else
+    die "could not determine trunk (default branch); pass --base explicitly"
+  fi
+fi
+
+result="$(herdr worktree create \
+  --cwd "$repo_root" \
+  --branch "$branch" \
+  --base "$base" \
+  --focus 2>&1)" \
+  || die "herdr worktree create failed: $result"
+
+echo "$result"
