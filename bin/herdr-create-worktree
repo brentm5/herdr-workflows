@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # herdr-create-worktree — create a git worktree backed by a herdr workspace
-# for a branch, based on trunk, and focus it. One command instead of the
-# usual git dance.
+# for a branch, and focus it. One command instead of the usual git dance.
+#
+# The new branch is based on whatever branch is currently checked out in
+# the repo's primary checkout (herdr's own default for an omitted --base) —
+# not necessarily trunk. Check out the branch you want as a base before
+# running this script.
 #
 # This is the exception to this repo's "session-required" pattern: it
 # bootstraps a herdr session/workspace rather than requiring one to already
@@ -34,24 +38,11 @@ branch="$1"
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" \
   || die "not inside a git repository"
 
-# Determine trunk (repo default branch) purely from local git state — no
-# network calls. herdr's own default (the source checkout's current branch)
-# isn't good enough here: it'd silently branch from whatever happens to be
-# checked out, not necessarily trunk.
-if symref="$(git -C "$repo_root" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)"; then
-  base="${symref#origin/}"
-elif git -C "$repo_root" show-ref --verify --quiet refs/heads/main; then
-  base="main"
-elif git -C "$repo_root" show-ref --verify --quiet refs/heads/master; then
-  base="master"
-else
-  die "could not determine trunk (default branch) for $repo_root"
-fi
-
+# No --base: herdr defaults to whatever branch is currently checked out in
+# the primary checkout, which is what we want here.
 result="$(herdr worktree create \
   --cwd "$repo_root" \
   --branch "$branch" \
-  --base "$base" \
   --focus 2>&1)" \
   || die "herdr worktree create failed: $result"
 
