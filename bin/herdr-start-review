@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# herdr-start-review — kick off a review session on the current branch/diff
+# in one command: create or reuse a reviewer tab, start a reviewer agent
+# there, and prompt it to review the current diff.
+#
+# Session-required: must be run from inside an active herdr session. This
+# script does not bootstrap one — see CONTEXT.md "Session-required workflow".
+#
+# Purpose-built, not a generic "start any agent with any prompt" tool: the
+# agent kind and the review prompt are both fixed below, not user-supplied.
+set -euo pipefail
+
+# --- config ---
+AGENT_KIND="claude"
+REVIEW_PROMPT="/code-review"
+AGENT_NAME_PREFIX="reviewer"
+
+die() {
+  echo "herdr-start-review: $*" >&2
+  exit 1
+}
+
+command -v herdr >/dev/null 2>&1 || die "herdr CLI not found on PATH"
+command -v jq >/dev/null 2>&1 || die "jq not found on PATH"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Usage: herdr-start-review" >&2
+  echo "Must be run from inside an active herdr session." >&2
+  exit 0
+fi
+[[ $# -eq 0 ]] || die "usage: herdr-start-review (no arguments)"
+
+# Session-required: error out rather than bootstrapping one.
+[[ "${HERDR_ENV:-}" == "1" ]] || die "not running inside a herdr session"
+[[ -n "${HERDR_PANE_ID:-}" ]] || die "HERDR_PANE_ID is not set; not running inside a herdr session"
+[[ -n "${HERDR_WORKSPACE_ID:-}" ]] || die "HERDR_WORKSPACE_ID is not set; not running inside a herdr session"
+
+# Agent names are unique server-wide, not per-workspace (two workspaces can
+# each want a "reviewer"). Derive a workspace-qualified name so this script
+# never collides with, or accidentally targets, another workspace's reviewer
+# agent. Herdr agent names must match [a-z][a-z0-9_-]{0,31}.
+ws_suffix="$(tr '[:upper:]' '[:lower:]' <<<"$HERDR_WORKSPACE_ID" | tr -c 'a-z0-9' '-')"
+AGENT_NAME="${AGENT_NAME_PREFIX}-${ws_suffix}"
+AGENT_NAME="${AGENT_NAME:0:32}"
+AGENT_NAME="${AGENT_NAME%-}"
+
+# Reuse the existing reviewer tab/agent for this workspace if one is already
+# running, so repeated invocations in the same session don't pile up
+# tabs/agents.
+existing="$(herdr agent get "$AGENT_NAME" 2>/dev/null | jq -r '"\(.result.agent.pane_id // empty)\t\(.result.agent.tab_id // empty)"' 2>/dev/null || true)"
+existing_pane="${existing%%$'\t'*}"
+existing_tab="${existing#*$'\t'}"
+
+if [[ -n "$existing_pane" && -n "$existing_tab" ]]; then
+  pane_id="$existing_pane"
+  tab_id="$existing_tab"
+else
+  tab_result="$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "$AGENT_NAME" --no-focus 2>&1)" \
+    || die "herdr tab create failed: $tab_result"
+  tab_id="$(jq -r '.result.root_pane.tab_id // empty' <<<"$tab_result")"
+  pane_id="$(jq -r '.result.root_pane.pane_id // empty' <<<"$tab_result")"
+  [[ -n "$pane_id" ]] || die "could not read new pane id from tab create result: $tab_result"
+
+  start_result="$(herdr agent start "$AGENT_NAME" --kind "$AGENT_KIND" --pane "$pane_id" 2>&1)" \
+    || die "herdr agent start failed: $start_result"
+fi
+
+prompt_result="$(herdr agent prompt "$AGENT_NAME" "$REVIEW_PROMPT" 2>&1)" \
+  || die "herdr agent prompt failed: $prompt_result"
+
+herdr tab focus "$tab_id" >/dev/null 2>&1 || die "herdr tab focus failed for tab $tab_id"
+
+echo "$prompt_result"
